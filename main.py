@@ -14,6 +14,19 @@ from datetime import datetime, timezone
 REQUEST_TIMEOUT = 10
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SecurityAudit/2.0"
 REPORT_OUTPUT_DIR = None  # Set via CLI; defaults to ./reports at runtime
+EXTRA_HEADERS = {}  # Additional headers injected into every request (e.g. Vercel bypass)
+
+
+def build_headers(**overrides):
+    """Build request headers merging User-Agent, cache-busting, extra headers, and overrides."""
+    h = {
+        "User-Agent": USER_AGENT,
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+    }
+    h.update(EXTRA_HEADERS)
+    h.update(overrides)
+    return h
 
 
 # ─── Utility ─────────────────────────────────────────────────────────────────
@@ -395,8 +408,7 @@ def check_cors(url, headers, result):
         evil_origin = "https://evil.attacker.com"
         test_resp = requests.get(
             url, timeout=REQUEST_TIMEOUT,
-            headers={"User-Agent": USER_AGENT, "Origin": evil_origin,
-                     "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+            headers=build_headers(Origin=evil_origin),
         )
         reflected = test_resp.headers.get("Access-Control-Allow-Origin", "")
         if reflected == evil_origin:
@@ -482,8 +494,7 @@ def check_http_methods(url, result):
 
     try:
         resp = requests.options(url, timeout=REQUEST_TIMEOUT,
-                                headers={"User-Agent": USER_AGENT,
-                                         "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"})
+                                headers=build_headers())
         allow = resp.headers.get("Allow", "")
         if allow:
             methods = {m.strip().upper() for m in allow.split(",")}
@@ -502,7 +513,8 @@ def check_http_methods(url, result):
 
         # TRACE test
         try:
-            trace_resp = requests.request("TRACE", url, timeout=REQUEST_TIMEOUT)
+            trace_resp = requests.request("TRACE", url, timeout=REQUEST_TIMEOUT,
+                                          headers=build_headers())
             if trace_resp.status_code == 200:
                 print(f"  {severity_tag('MEDIUM')} TRACE method returns 200 — Cross-Site Tracing risk")
                 result.add("HTTP Methods", "TRACE enabled", "FAIL", "MEDIUM",
@@ -521,8 +533,7 @@ def check_redirect_chain(url, result):
     try:
         resp = requests.get(
             url, timeout=REQUEST_TIMEOUT,
-            headers={"User-Agent": USER_AGENT,
-                     "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+            headers=build_headers(),
             allow_redirects=True,
         )
 
@@ -550,8 +561,7 @@ def check_redirect_chain(url, result):
             try:
                 http_resp = requests.get(
                     http_url, timeout=REQUEST_TIMEOUT,
-                    headers={"User-Agent": USER_AGENT,
-                             "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+                    headers=build_headers(),
                     allow_redirects=False,
                 )
                 if http_resp.status_code in (301, 302, 307, 308):
@@ -647,8 +657,7 @@ def check_owasp_top10(url, response, headers, result):
             test_url = f"{parsed.scheme}://{parsed.hostname}{path}"
             resp = requests.get(
                 test_url, timeout=5,
-                headers={"User-Agent": USER_AGENT,
-                         "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+                headers=build_headers(),
                 allow_redirects=False,
             )
             if resp.status_code == 200:
@@ -702,8 +711,7 @@ def check_owasp_top10(url, response, headers, result):
 
     try:
         inj_resp = requests.get(injection_url, timeout=REQUEST_TIMEOUT,
-                                headers={"User-Agent": USER_AGENT,
-                                         "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+                                headers=build_headers(),
                                 allow_redirects=True)
         if xss_canary in inj_resp.text:
             print(f"  {severity_tag('CRITICAL')} XSS reflection detected — input echoed unescaped!")
@@ -902,8 +910,7 @@ def check_owasp_top10(url, response, headers, result):
     try:
         sec_txt_resp = requests.get(
             f"{parsed.scheme}://{parsed.hostname}/.well-known/security.txt",
-            timeout=5, headers={"User-Agent": USER_AGENT,
-                                "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+            timeout=5, headers=build_headers(),
         )
         if sec_txt_resp.status_code == 200 and "contact:" in sec_txt_resp.text.lower():
             print(f"  [+] security.txt present — vulnerability reporting channel exists")
@@ -1004,12 +1011,7 @@ def run_audit(url):
     try:
         response = requests.get(
             url, timeout=REQUEST_TIMEOUT,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            },
+            headers=build_headers(),
         )
         headers = response.headers
         print(f"\n  [i] HTTP {response.status_code} — {len(response.content)} bytes received")
@@ -1110,6 +1112,12 @@ if __name__ == "__main__":
         default=None,
         help="Directory for report output (default: ./reports)",
     )
+    parser.add_argument(
+        "--vercel-bypass",
+        default=None,
+        metavar="SECRET",
+        help="Vercel deployment protection bypass secret (x-vercel-protection-bypass header)",
+    )
 
     args = parser.parse_args()
 
@@ -1127,5 +1135,21 @@ if __name__ == "__main__":
     REQUEST_TIMEOUT = args.timeout
     if args.output_dir:
         REPORT_OUTPUT_DIR = args.output_dir
+    if args.vercel_bypass:
+        EXTRA_HEADERS["x-vercel-protection-bypass"] = args.vercel_bypass
+
+    # Auto-detect Vercel-protected deployments and prompt for bypass secret
+    if not args.vercel_bypass and "vercel" in target.lower():
+        try:
+            probe = requests.get(target, timeout=REQUEST_TIMEOUT,
+                                 headers={"User-Agent": USER_AGENT}, allow_redirects=False)
+            if probe.status_code == 401 and "x-vercel-id" in {k.lower() for k in probe.headers}:
+                print("\n[!] Vercel deployment protection detected (HTTP 401).")
+                print("    This deployment requires a bypass secret to audit.")
+                print("    Re-run with: --vercel-bypass YOUR_SECRET")
+                print("    (Find it in Vercel → Project Settings → Deployment Protection → Protection Bypass for Automation)")
+                sys.exit(1)
+        except requests.exceptions.RequestException:
+            pass
 
     run_audit(target)
