@@ -395,7 +395,8 @@ def check_cors(url, headers, result):
         evil_origin = "https://evil.attacker.com"
         test_resp = requests.get(
             url, timeout=REQUEST_TIMEOUT,
-            headers={"User-Agent": USER_AGENT, "Origin": evil_origin},
+            headers={"User-Agent": USER_AGENT, "Origin": evil_origin,
+                     "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
         )
         reflected = test_resp.headers.get("Access-Control-Allow-Origin", "")
         if reflected == evil_origin:
@@ -480,7 +481,9 @@ def check_http_methods(url, result):
     dangerous_methods = {"PUT", "DELETE", "TRACE", "CONNECT", "PATCH"}
 
     try:
-        resp = requests.options(url, timeout=REQUEST_TIMEOUT, headers={"User-Agent": USER_AGENT})
+        resp = requests.options(url, timeout=REQUEST_TIMEOUT,
+                                headers={"User-Agent": USER_AGENT,
+                                         "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"})
         allow = resp.headers.get("Allow", "")
         if allow:
             methods = {m.strip().upper() for m in allow.split(",")}
@@ -518,7 +521,8 @@ def check_redirect_chain(url, result):
     try:
         resp = requests.get(
             url, timeout=REQUEST_TIMEOUT,
-            headers={"User-Agent": USER_AGENT},
+            headers={"User-Agent": USER_AGENT,
+                     "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
             allow_redirects=True,
         )
 
@@ -546,7 +550,8 @@ def check_redirect_chain(url, result):
             try:
                 http_resp = requests.get(
                     http_url, timeout=REQUEST_TIMEOUT,
-                    headers={"User-Agent": USER_AGENT},
+                    headers={"User-Agent": USER_AGENT,
+                             "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
                     allow_redirects=False,
                 )
                 if http_resp.status_code in (301, 302, 307, 308):
@@ -642,7 +647,8 @@ def check_owasp_top10(url, response, headers, result):
             test_url = f"{parsed.scheme}://{parsed.hostname}{path}"
             resp = requests.get(
                 test_url, timeout=5,
-                headers={"User-Agent": USER_AGENT},
+                headers={"User-Agent": USER_AGENT,
+                         "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
                 allow_redirects=False,
             )
             if resp.status_code == 200:
@@ -696,7 +702,9 @@ def check_owasp_top10(url, response, headers, result):
 
     try:
         inj_resp = requests.get(injection_url, timeout=REQUEST_TIMEOUT,
-                                headers={"User-Agent": USER_AGENT}, allow_redirects=True)
+                                headers={"User-Agent": USER_AGENT,
+                                         "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
+                                allow_redirects=True)
         if xss_canary in inj_resp.text:
             print(f"  {severity_tag('CRITICAL')} XSS reflection detected — input echoed unescaped!")
             result.add("OWASP A03", "Reflected XSS", "FAIL", "CRITICAL",
@@ -894,7 +902,8 @@ def check_owasp_top10(url, response, headers, result):
     try:
         sec_txt_resp = requests.get(
             f"{parsed.scheme}://{parsed.hostname}/.well-known/security.txt",
-            timeout=5, headers={"User-Agent": USER_AGENT},
+            timeout=5, headers={"User-Agent": USER_AGENT,
+                                "Cache-Control": "no-cache, no-store", "Pragma": "no-cache"},
         )
         if sec_txt_resp.status_code == 200 and "contact:" in sec_txt_resp.text.lower():
             print(f"  [+] security.txt present — vulnerability reporting channel exists")
@@ -991,11 +1000,16 @@ def run_audit(url):
 
     result = AuditResult()
 
-    # Initial request
+    # Initial request (with cache-busting to get fresh headers)
     try:
         response = requests.get(
             url, timeout=REQUEST_TIMEOUT,
-            headers={"User-Agent": USER_AGENT},
+            headers={
+                "User-Agent": USER_AGENT,
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
         )
         headers = response.headers
         print(f"\n  [i] HTTP {response.status_code} — {len(response.content)} bytes received")
