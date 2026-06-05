@@ -75,6 +75,15 @@ python main.py https://api.example.com/v1 --api --header "X-Session-Token: abc"
 
 # Multiple custom headers
 python main.py https://api.example.com/v1 --api --header "X-Tenant: acme" --header "X-Version: 2"
+
+# POST with JSON body
+python main.py https://api.example.com/v1/login --api -X POST --json '{"username":"admin","password":"test"}'
+
+# POST with form data
+python main.py https://api.example.com/v1/search --api -X POST --data 'q=test&page=1'
+
+# POST with authentication
+python main.py https://api.example.com/v1/orders --api -X POST --bearer eyJhbGci... --json '{"item":"abc","qty":1}'
 ```
 
 ### Local / development server
@@ -105,6 +114,9 @@ python main.py 'http://localhost:4200/api/v1/items?$top=10&$skip=0' --api --head
 |------|-------|-------------|
 | `url` | | Target URL to audit (required) |
 | `--api` | | Enable API mode |
+| `--method METHOD` | `-X` | HTTP method for the initial request (default: `GET`) |
+| `--json '{"k":"v"}'` | | Send JSON body — sets `Content-Type: application/json` |
+| `--data 'key=value'` | `-d` | Send raw form body |
 | `--bearer TOKEN` | | Bearer token — sets `Authorization: Bearer <token>` |
 | `--api-key KEY` | | API key — sets `X-API-Key: <key>` |
 | `--header 'N: V'` | | Custom request header, repeatable (use for Cookie auth, custom tokens, etc.) |

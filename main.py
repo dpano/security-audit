@@ -26,7 +26,7 @@ from checks import (
 )
 
 
-def run_audit(url, api_mode=False, auth_header=None, skip_ssl=False):
+def run_audit(url, api_mode=False, auth_header=None, skip_ssl=False, method="GET", body=None, json_body=None):
     parsed = urlparse(url)
     hostname = parsed.hostname
 
@@ -38,6 +38,7 @@ def run_audit(url, api_mode=False, auth_header=None, skip_ssl=False):
     print(f"\n{'═' * 60}")
     print(f"   {mode_label}")
     print(f"   Target: {url}")
+    print(f"   Method: {method.upper()}")
     if api_mode:
         print(f"   Mode:   API  {'(authenticated)' if auth_header else '(unauthenticated)'}")
     print(f"   Date:   {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
@@ -50,12 +51,19 @@ def run_audit(url, api_mode=False, auth_header=None, skip_ssl=False):
     if auth_header:
         req_headers.update(auth_header)
 
-    # Initial request
+    # Initial request — supports GET, POST, PUT, PATCH etc.
     try:
-        response = requests.get(
-            url, timeout=config.REQUEST_TIMEOUT,
+        req_kwargs = dict(
+            timeout=config.REQUEST_TIMEOUT,
             headers=req_headers,
         )
+        if json_body is not None:
+            req_kwargs["json"] = json_body
+            req_headers.setdefault("Content-Type", "application/json")
+        elif body is not None:
+            req_kwargs["data"] = body
+
+        response = requests.request(method.upper(), url, **req_kwargs)
         headers = response.headers
         print(f"\n  [i] HTTP {response.status_code} — {len(response.content)} bytes received")
         ct = headers.get("Content-Type", "unknown")
@@ -152,7 +160,9 @@ Examples:
   python main.py https://api.example.com/v1/users --api
   python main.py https://api.example.com/v1 --api --bearer eyJhbGci...
   python main.py https://api.example.com/v1 --api --api-key mykey123
-  python main.py https://api.example.com/v1 --api --header "X-Custom-Auth: token123"
+  python main.py https://api.example.com/v1 --api --header "Cookie: session=abc"
+  python main.py https://api.example.com/v1/login --api -X POST --json '{"user":"admin","pass":"test"}'
+  python main.py https://api.example.com/v1/search --api -X POST --data 'q=test&page=1'
         """,
     )
     parser.add_argument(
@@ -174,6 +184,18 @@ Examples:
     parser.add_argument(
         "--header", metavar="'Name: Value'", action="append", dest="headers",
         help="Custom header for requests, can be repeated (e.g. --header 'X-Tenant-ID: abc')",
+    )
+    parser.add_argument(
+        "--method", "-X", default="GET", metavar="METHOD",
+        help="HTTP method for the initial request (default: GET). E.g. POST, PUT, PATCH",
+    )
+    parser.add_argument(
+        "--data", "-d", default=None, metavar="BODY",
+        help="Request body as a raw string (e.g. 'name=John&age=30'). Sets Content-Type to application/x-www-form-urlencoded if not overridden.",
+    )
+    parser.add_argument(
+        "--json", default=None, metavar="JSON", dest="json_data",
+        help='Request body as JSON string (e.g. \'{"name":"John"}\'). Automatically sets Content-Type: application/json.',
     )
     parser.add_argument(
         "--no-ssl", action="store_true",
@@ -229,7 +251,25 @@ Examples:
     # Merge any auth headers into EXTRA_HEADERS so all checks pick them up
     config.EXTRA_HEADERS.update(auth_header)
 
-    run_audit(target, api_mode=args.api, auth_header=auth_header if auth_header else None, skip_ssl=skip_ssl)
+    # Parse JSON body if provided
+    json_body = None
+    if args.json_data:
+        try:
+            import json as _json
+            json_body = _json.loads(args.json_data)
+        except ValueError as e:
+            print(f"[!] Invalid JSON in --json: {e}")
+            sys.exit(1)
+
+    run_audit(
+        target,
+        api_mode=args.api,
+        auth_header=auth_header if auth_header else None,
+        skip_ssl=skip_ssl,
+        method=args.method,
+        body=args.data,
+        json_body=json_body,
+    )
 
 
 if __name__ == "__main__":
