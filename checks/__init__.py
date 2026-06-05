@@ -10,6 +10,7 @@ from checks.redirects import check_redirect_chain
 from checks.content import check_content_analysis
 from checks.owasp import check_owasp_top10
 from checks.fingerprint import check_server_fingerprint
+from checks.api import check_api_security
 
 __all__ = [
     "check_security_headers",
@@ -22,4 +23,5 @@ __all__ = [
     "check_content_analysis",
     "check_owasp_top10",
     "check_server_fingerprint",
+    "check_api_security",
 ]

@@ -22,10 +22,11 @@ from checks import (
     check_content_analysis,
     check_owasp_top10,
     check_server_fingerprint,
+    check_api_security,
 )
 
 
-def run_audit(url):
+def run_audit(url, api_mode=False, auth_header=None):
     parsed = urlparse(url)
     hostname = parsed.hostname
 
@@ -33,37 +34,59 @@ def run_audit(url):
         print("[!] Invalid URL. Please include the scheme (https://...).")
         sys.exit(1)
 
+    mode_label = "API SECURITY AUDIT" if api_mode else "SECURITY VULNERABILITY AUDIT"
     print(f"\n{'═' * 60}")
-    print(f"   SECURITY VULNERABILITY AUDIT")
+    print(f"   {mode_label}")
     print(f"   Target: {url}")
+    if api_mode:
+        print(f"   Mode:   API  {'(authenticated)' if auth_header else '(unauthenticated)'}")
     print(f"   Date:   {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     print(f"{'═' * 60}")
 
     result = AuditResult()
 
+    # Build request headers — include auth if provided
+    req_headers = build_headers()
+    if auth_header:
+        req_headers.update(auth_header)
+
     # Initial request
     try:
         response = requests.get(
             url, timeout=config.REQUEST_TIMEOUT,
-            headers=build_headers(),
+            headers=req_headers,
         )
         headers = response.headers
         print(f"\n  [i] HTTP {response.status_code} — {len(response.content)} bytes received")
+        ct = headers.get("Content-Type", "unknown")
+        print(f"  [i] Content-Type: {ct}")
     except requests.exceptions.RequestException as e:
         print(f"\n[!] Connection failed: {e}")
         sys.exit(1)
 
-    # Run all checks
-    check_security_headers(headers, result)
-    check_information_leakage(headers, result)
-    check_cookie_security(response, result)
-    check_cors(url, headers, result)
-    check_ssl_tls(hostname, result)
-    check_http_methods(url, result)
-    check_redirect_chain(url, result)
-    check_content_analysis(response, result)
-    check_owasp_top10(url, response, headers, result)
-    check_server_fingerprint(headers, result)
+    if api_mode:
+        # API mode: transport/infra checks + API-specific checks
+        # Skip HTML-oriented checks (content analysis, OWASP A07 forms, fingerprint)
+        check_security_headers(headers, result)
+        check_information_leakage(headers, result)
+        check_cookie_security(response, result)
+        check_cors(url, headers, result)
+        check_ssl_tls(hostname, result)
+        check_http_methods(url, result)
+        check_redirect_chain(url, result)
+        check_api_security(url, response, headers, result, auth_header=auth_header)
+    else:
+        # Standard web audit
+        check_security_headers(headers, result)
+        check_information_leakage(headers, result)
+        check_cookie_security(response, result)
+        check_cors(url, headers, result)
+        check_ssl_tls(hostname, result)
+        check_http_methods(url, result)
+        check_redirect_chain(url, result)
+        check_content_analysis(response, result)
+        check_owasp_top10(url, response, headers, result)
+        check_server_fingerprint(headers, result)
 
     # Final summary
     print_section("AUDIT SUMMARY")
@@ -109,9 +132,10 @@ def run_audit(url):
 
     timestamp_slug = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     domain_slug = parsed.hostname.replace(".", "_")
+    mode_slug = "api" if api_mode else "web"
 
-    json_path = os.path.join(report_dir, f"audit_{domain_slug}_{timestamp_slug}.json")
-    html_path = os.path.join(report_dir, f"audit_{domain_slug}_{timestamp_slug}.html")
+    json_path = os.path.join(report_dir, f"audit_{mode_slug}_{domain_slug}_{timestamp_slug}.json")
+    html_path = os.path.join(report_dir, f"audit_{mode_slug}_{domain_slug}_{timestamp_slug}.html")
 
     result.export_json(json_path, url)
     result.export_html(html_path, url)
@@ -121,12 +145,36 @@ def run_audit(url):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Security Vulnerability Audit — scan a URL for common web security issues and OWASP Top 10.",
-        epilog="Example: python main.py https://example.com",
+        description="Security Vulnerability Audit — scan a web app or API for security issues.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py https://example.com
+  python main.py https://api.example.com/v1/users --api
+  python main.py https://api.example.com/v1 --api --bearer eyJhbGci...
+  python main.py https://api.example.com/v1 --api --api-key mykey123
+  python main.py https://api.example.com/v1 --api --header "X-Custom-Auth: token123"
+        """,
     )
     parser.add_argument(
         "url", nargs="?", default=None,
-        help="Target URL to audit (e.g. https://example.com)",
+        help="Target URL to audit (e.g. https://example.com or https://api.example.com/v1)",
+    )
+    parser.add_argument(
+        "--api", action="store_true",
+        help="Enable API mode — skips HTML checks, runs API-specific security tests",
+    )
+    parser.add_argument(
+        "--bearer", metavar="TOKEN",
+        help="Bearer token for authenticated API testing (sets Authorization: Bearer <token>)",
+    )
+    parser.add_argument(
+        "--api-key", metavar="KEY",
+        help="API key for authentication (sets X-API-Key: <key>)",
+    )
+    parser.add_argument(
+        "--header", metavar="'Name: Value'", action="append", dest="headers",
+        help="Custom header for requests, can be repeated (e.g. --header 'X-Tenant-ID: abc')",
     )
     parser.add_argument(
         "--timeout", "-t", type=int, default=10,
@@ -138,7 +186,7 @@ def main():
     )
     parser.add_argument(
         "--vercel-bypass", default=None, metavar="SECRET",
-        help="Vercel deployment protection bypass secret (x-vercel-protection-bypass header)",
+        help="Vercel deployment protection bypass secret",
     )
 
     args = parser.parse_args()
@@ -153,28 +201,29 @@ def main():
     if not target.startswith(("http://", "https://")):
         target = "https://" + target
 
-    # Apply CLI options
+    # Apply global config options
     config.REQUEST_TIMEOUT = args.timeout
     if args.output_dir:
         config.REPORT_OUTPUT_DIR = args.output_dir
     if args.vercel_bypass:
         config.EXTRA_HEADERS["x-vercel-protection-bypass"] = args.vercel_bypass
 
-    # Auto-detect Vercel-protected deployments
-    if not args.vercel_bypass and "vercel" in target.lower():
-        try:
-            probe = requests.get(target, timeout=config.REQUEST_TIMEOUT,
-                                 headers={"User-Agent": config.USER_AGENT}, allow_redirects=False)
-            if probe.status_code == 401 and "x-vercel-id" in {k.lower() for k in probe.headers}:
-                print("\n[!] Vercel deployment protection detected (HTTP 401).")
-                print("    This deployment requires a bypass secret to audit.")
-                print("    Re-run with: --vercel-bypass YOUR_SECRET")
-                print("    (Find it in Vercel → Project Settings → Deployment Protection → Protection Bypass for Automation)")
-                sys.exit(1)
-        except requests.exceptions.RequestException:
-            pass
+    # Build auth header dict from CLI flags
+    auth_header = {}
+    if args.bearer:
+        auth_header["Authorization"] = f"Bearer {args.bearer}"
+    if args.api_key:
+        auth_header["X-API-Key"] = args.api_key
+    if args.headers:
+        for h in args.headers:
+            if ":" in h:
+                name, _, value = h.partition(":")
+                auth_header[name.strip()] = value.strip()
 
-    run_audit(target)
+    # Merge any auth headers into EXTRA_HEADERS so all checks pick them up
+    config.EXTRA_HEADERS.update(auth_header)
+
+    run_audit(target, api_mode=args.api, auth_header=auth_header if auth_header else None)
 
 
 if __name__ == "__main__":

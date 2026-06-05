@@ -4,6 +4,7 @@ A Python-based web security scanner that performs vulnerability assessments agai
 
 ## Features
 
+### Web mode (default)
 - **Security Headers** — validates 9 critical headers (HSTS, CSP, X-Frame-Options, Permissions-Policy, etc.) with quality analysis on values
 - **SSL/TLS Analysis** — certificate expiry, protocol version, deprecated TLS 1.0/1.1 detection
 - **Cookie Security** — Secure, HttpOnly, SameSite flag inspection
@@ -13,17 +14,17 @@ A Python-based web security scanner that performs vulnerability assessments agai
 - **Information Leakage** — server version, framework exposure, debug headers
 - **Content Analysis** — API keys, source maps, debug indicators in response body
 - **Technology Fingerprinting** — CDN/platform detection (Cloudflare, Vercel, AWS, etc.)
-- **OWASP Top 10 (2021)** — full category coverage:
-  - A01: Broken Access Control (sensitive path probing, directory listing)
-  - A02: Cryptographic Failures (HTTPS, mixed content, HSTS)
-  - A03: Injection (reflected XSS probe, SQL error detection)
-  - A04: Insecure Design (rate limiting, CAPTCHA)
-  - A05: Security Misconfiguration (stack traces, debug headers)
-  - A06: Vulnerable Components (client-side library version detection)
-  - A07: Auth Failures (CSRF tokens, session ID exposure)
-  - A08: Data Integrity (Subresource Integrity on external scripts)
-  - A09: Logging & Monitoring (security.txt presence)
-  - A10: SSRF (URL-accepting parameters, open redirect vectors)
+- **OWASP Top 10 (2021)** — full category coverage (A01–A10)
+
+### API mode (`--api`)
+- **Authentication enforcement** — tests whether endpoints reject unauthenticated requests
+- **Sensitive data exposure** — scans JSON responses for passwords, tokens, PII, internal paths
+- **Rate limiting** — checks headers and fires 15 rapid requests to verify enforcement
+- **HTTP verb tampering** — tests PUT/DELETE/PATCH access and method-override headers
+- **Injection probes** — NoSQL injection, SSTI, path traversal, XXE, command injection
+- **Mass assignment / overexposure** — detects privileged and internal fields in JSON responses
+- **Error handling** — triggers error conditions and checks for verbose stack traces / SQL errors
+- **Endpoint discovery** — probes common API paths (docs, admin, metrics, GraphQL, OpenAPI)
 
 ## Requirements
 
@@ -42,20 +43,32 @@ pip install requests
 python main.py <url> [options]
 ```
 
-### Examples
+### Web audit (default)
 
 ```bash
-# Basic scan
 python main.py https://example.com
-
-# Auto-prepends https:// if no scheme provided
-python main.py example.com
-
-# Custom timeout
+python main.py example.com                          # auto-prepends https://
 python main.py https://example.com --timeout 15
+python main.py https://example.com -o ./my-reports
+```
 
-# Custom report output directory
-python main.py https://example.com --output-dir ./my-reports
+### API audit (`--api`)
+
+```bash
+# Unauthenticated API scan
+python main.py https://api.example.com/v1 --api
+
+# Bearer token (JWT)
+python main.py https://api.example.com/v1 --api --bearer eyJhbGci...
+
+# API key header
+python main.py https://api.example.com/v1 --api --api-key mykey123
+
+# Custom auth header
+python main.py https://api.example.com/v1 --api --header "X-Session-Token: abc"
+
+# Multiple custom headers
+python main.py https://api.example.com/v1 --api --header "X-Tenant: acme" --header "X-Version: 2"
 ```
 
 ### Options
@@ -63,6 +76,10 @@ python main.py https://example.com --output-dir ./my-reports
 | Flag | Short | Description |
 |------|-------|-------------|
 | `url` | | Target URL to audit (required) |
+| `--api` | | Enable API mode |
+| `--bearer TOKEN` | | Bearer token for authenticated API testing |
+| `--api-key KEY` | | API key (sets `X-API-Key` header) |
+| `--header 'N: V'` | | Custom request header, repeatable |
 | `--timeout` | `-t` | Request timeout in seconds (default: 10) |
 | `--output-dir` | `-o` | Report output directory (default: `./reports`) |
 | `--help` | `-h` | Show help message |
