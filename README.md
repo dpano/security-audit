@@ -1,6 +1,6 @@
 # Security Audit
 
-A Python-based web security scanner that performs vulnerability assessments against a target URL. Checks cover security headers, SSL/TLS configuration, cookie hygiene, CORS policy, and the full OWASP Top 10 (2021).
+A Python-based web security scanner that performs vulnerability assessments against a target URL. Supports both web app and API scanning modes with OWASP Top 10 (2021) coverage.
 
 ## Features
 
@@ -64,11 +64,39 @@ python main.py https://api.example.com/v1 --api --bearer eyJhbGci...
 # API key header
 python main.py https://api.example.com/v1 --api --api-key mykey123
 
+# Cookie-based authentication
+python main.py https://api.example.com/v1 --api --header "Cookie: session=abc123"
+
+# Multiple cookies
+python main.py https://api.example.com/v1 --api --header "Cookie: session=abc123; csrf_token=xyz"
+
 # Custom auth header
 python main.py https://api.example.com/v1 --api --header "X-Session-Token: abc"
 
 # Multiple custom headers
 python main.py https://api.example.com/v1 --api --header "X-Tenant: acme" --header "X-Version: 2"
+```
+
+### Local / development server
+
+Plain HTTP servers (e.g. `http://localhost`) automatically skip SSL checks — no extra flags needed:
+
+```bash
+python main.py http://localhost:4200/api/v1/users --api --header "Cookie: session=abc123"
+```
+
+Use `--no-ssl` to explicitly skip SSL checks on any target:
+
+```bash
+python main.py https://staging.internal --api --no-ssl --header "Cookie: session=abc123"
+```
+
+### PowerShell note
+
+Wrap URLs containing `&` or `$` in single quotes to prevent shell interpretation:
+
+```powershell
+python main.py 'http://localhost:4200/api/v1/items?$top=10&$skip=0' --api --header "Cookie: session=abc123"
 ```
 
 ### Options
@@ -77,24 +105,30 @@ python main.py https://api.example.com/v1 --api --header "X-Tenant: acme" --head
 |------|-------|-------------|
 | `url` | | Target URL to audit (required) |
 | `--api` | | Enable API mode |
-| `--bearer TOKEN` | | Bearer token for authenticated API testing |
-| `--api-key KEY` | | API key (sets `X-API-Key` header) |
-| `--header 'N: V'` | | Custom request header, repeatable |
+| `--bearer TOKEN` | | Bearer token — sets `Authorization: Bearer <token>` |
+| `--api-key KEY` | | API key — sets `X-API-Key: <key>` |
+| `--header 'N: V'` | | Custom request header, repeatable (use for Cookie auth, custom tokens, etc.) |
+| `--no-ssl` | | Skip SSL/TLS checks (auto-enabled for `http://` targets) |
 | `--timeout` | `-t` | Request timeout in seconds (default: 10) |
 | `--output-dir` | `-o` | Report output directory (default: `./reports`) |
+| `--vercel-bypass SECRET` | | Vercel deployment protection bypass secret |
 | `--help` | `-h` | Show help message |
 
 ## Output
 
-The tool produces:
+Reports are written to `./reports/` after every scan (or the path set with `--output-dir`).
 
-1. **Terminal output** — color-coded findings with severity tags and a risk score summary
-2. **JSON report** — structured data at `reports/audit_<domain>_<timestamp>.json`
-3. **HTML report** — styled, self-contained report at `reports/audit_<domain>_<timestamp>.html`
+| Format | Filename pattern | Contents |
+|--------|-----------------|----------|
+| Terminal | — | Live findings with severity tags and summary |
+| JSON | `audit_<mode>_<domain>_<timestamp>.json` | Structured data, machine-readable |
+| HTML | `audit_<mode>_<domain>_<timestamp>.html` | Styled report, open in any browser |
+
+`<mode>` is `web` or `api` depending on the scan mode used.
 
 ### Risk Scoring
 
-Each finding is assigned a severity (CRITICAL, HIGH, MEDIUM, LOW, INFO) and a weighted risk score determines the overall rating:
+Each finding carries a severity weight. The total determines the overall rating:
 
 | Score | Rating |
 |-------|--------|
@@ -104,9 +138,17 @@ Each finding is assigned a severity (CRITICAL, HIGH, MEDIUM, LOW, INFO) and a we
 | 16–30 | Poor |
 | 31+ | Critical |
 
+| Severity | Weight |
+|----------|--------|
+| CRITICAL | 10 |
+| HIGH | 5 |
+| MEDIUM | 2 |
+| LOW | 1 |
+| INFO | 0 |
+
 ## Disclaimer
 
-This tool is intended for authorized security testing only. Always obtain proper authorization before scanning any target. The tool sends non-destructive HTTP requests but probes sensitive paths and injects test payloads — use responsibly.
+This tool is intended for authorized security testing only. Always obtain proper authorization before scanning any target. The tool sends non-destructive HTTP requests but does probe sensitive paths and inject test payloads — use responsibly.
 
 ## License
 

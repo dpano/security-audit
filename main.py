@@ -26,7 +26,7 @@ from checks import (
 )
 
 
-def run_audit(url, api_mode=False, auth_header=None):
+def run_audit(url, api_mode=False, auth_header=None, skip_ssl=False):
     parsed = urlparse(url)
     hostname = parsed.hostname
 
@@ -65,23 +65,22 @@ def run_audit(url, api_mode=False, auth_header=None):
         sys.exit(1)
 
     if api_mode:
-        # API mode: transport/infra checks + API-specific checks
-        # Skip HTML-oriented checks (content analysis, OWASP A07 forms, fingerprint)
         check_security_headers(headers, result)
         check_information_leakage(headers, result)
         check_cookie_security(response, result)
         check_cors(url, headers, result)
-        check_ssl_tls(hostname, result)
+        if not skip_ssl:
+            check_ssl_tls(hostname, result)
         check_http_methods(url, result)
         check_redirect_chain(url, result)
         check_api_security(url, response, headers, result, auth_header=auth_header)
     else:
-        # Standard web audit
         check_security_headers(headers, result)
         check_information_leakage(headers, result)
         check_cookie_security(response, result)
         check_cors(url, headers, result)
-        check_ssl_tls(hostname, result)
+        if not skip_ssl:
+            check_ssl_tls(hostname, result)
         check_http_methods(url, result)
         check_redirect_chain(url, result)
         check_content_analysis(response, result)
@@ -177,6 +176,10 @@ Examples:
         help="Custom header for requests, can be repeated (e.g. --header 'X-Tenant-ID: abc')",
     )
     parser.add_argument(
+        "--no-ssl", action="store_true",
+        help="Skip SSL/TLS checks (use for local HTTP servers)",
+    )
+    parser.add_argument(
         "--timeout", "-t", type=int, default=10,
         help="Request timeout in seconds (default: 10)",
     )
@@ -196,10 +199,13 @@ Examples:
         print("\n[!] Error: URL argument is required.")
         sys.exit(1)
 
-    # Normalize URL
+    # Normalize URL — only prepend https:// if no scheme at all
     target = args.url.strip()
     if not target.startswith(("http://", "https://")):
         target = "https://" + target
+
+    # Auto-enable --no-ssl for plain http:// targets
+    skip_ssl = args.no_ssl or target.startswith("http://")
 
     # Apply global config options
     config.REQUEST_TIMEOUT = args.timeout
@@ -223,7 +229,7 @@ Examples:
     # Merge any auth headers into EXTRA_HEADERS so all checks pick them up
     config.EXTRA_HEADERS.update(auth_header)
 
-    run_audit(target, api_mode=args.api, auth_header=auth_header if auth_header else None)
+    run_audit(target, api_mode=args.api, auth_header=auth_header if auth_header else None, skip_ssl=skip_ssl)
 
 
 if __name__ == "__main__":
