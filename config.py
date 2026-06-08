@@ -6,6 +6,7 @@ REQUEST_TIMEOUT = 10
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SecurityAudit/2.0"
 REPORT_OUTPUT_DIR = None  # Set via CLI; defaults to ./reports at runtime
 EXTRA_HEADERS = {}  # Additional headers injected into every request (e.g. Vercel bypass)
+SESSION = None  # Authenticated requests.Session — set after form login
 
 
 def build_headers(**overrides):

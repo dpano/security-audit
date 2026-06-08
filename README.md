@@ -86,7 +86,33 @@ python main.py https://api.example.com/v1/search --api -X POST --data 'q=test&pa
 python main.py https://api.example.com/v1/orders --api -X POST --bearer eyJhbGci... --json '{"item":"abc","qty":1}'
 ```
 
-### Local / development server
+### Authenticated web scan (form login)
+
+For apps that redirect to a login page, use `--login-url` to POST credentials first. The tool captures the session cookies and uses them for the actual audit.
+
+```powershell
+# Form-encoded login (most common)
+python main.py https://example.com/dashboard `
+  --login-url https://example.com/login `
+  --login-data "username=admin&password=secret"
+
+# JSON login endpoint
+python main.py https://example.com/dashboard `
+  --login-url https://example.com/api/auth/login `
+  --login-json '{"username":"admin","password":"secret"}'
+
+# Local dev server with form login
+python main.py http://localhost:4200/dashboard `
+  --login-url http://localhost:4200/auth/login `
+  --login-data "username=admin&password=secret"
+
+# Combine with API mode for protected API endpoints
+python main.py http://localhost:4200/api/v1/users --api `
+  --login-url http://localhost:4200/auth/login `
+  --login-json '{"username":"admin","password":"secret"}'
+```
+
+The tool warns you if the scan target still looks like a login page after authentication (indicating credentials may be wrong or the session wasn't set correctly).
 
 Plain HTTP servers (e.g. `http://localhost`) automatically skip SSL checks — no extra flags needed:
 
@@ -113,13 +139,16 @@ python main.py 'http://localhost:4200/api/v1/items?$top=10&$skip=0' --api --head
 | Flag | Short | Description |
 |------|-------|-------------|
 | `url` | | Target URL to audit (required) |
+| `--login-url URL` | | Login endpoint to POST credentials to before scanning |
+| `--login-data 'u=x&p=y'` | | Form-encoded credentials for `--login-url` |
+| `--login-json '{"u":"x"}'` | | JSON credentials for `--login-url` |
 | `--api` | | Enable API mode |
-| `--method METHOD` | `-X` | HTTP method for the initial request (default: `GET`) |
-| `--json '{"k":"v"}'` | | Send JSON body — sets `Content-Type: application/json` |
-| `--data 'key=value'` | `-d` | Send raw form body |
+| `--method METHOD` | `-X` | HTTP method for the audit request (default: `GET`) |
+| `--json '{"k":"v"}'` | | JSON body for the audit request — sets `Content-Type: application/json` |
+| `--data 'key=value'` | `-d` | Raw form body for the audit request |
 | `--bearer TOKEN` | | Bearer token — sets `Authorization: Bearer <token>` |
 | `--api-key KEY` | | API key — sets `X-API-Key: <key>` |
-| `--header 'N: V'` | | Custom request header, repeatable (use for Cookie auth, custom tokens, etc.) |
+| `--header 'N: V'` | | Custom request header, repeatable |
 | `--no-ssl` | | Skip SSL/TLS checks (auto-enabled for `http://` targets) |
 | `--timeout` | `-t` | Request timeout in seconds (default: 10) |
 | `--output-dir` | `-o` | Report output directory (default: `./reports`) |
