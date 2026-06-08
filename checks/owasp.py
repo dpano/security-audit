@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from config import REQUEST_TIMEOUT, build_headers, print_section, severity_tag
 
 
-def check_owasp_top10(url, response, headers, result):
+def check_owasp_top10(url, response, headers, result, skip_https_checks=False):
     """Check against OWASP Top 10 (2021) categories with active and passive tests."""
     print_section("OWASP Top 10 (2021) Assessment")
 
@@ -15,7 +15,7 @@ def check_owasp_top10(url, response, headers, result):
     parsed = urlparse(url)
 
     _check_a01_broken_access_control(url, body, headers, parsed, result)
-    _check_a02_cryptographic_failures(body, headers, parsed, result)
+    _check_a02_cryptographic_failures(body, headers, parsed, result, skip_https_checks)
     _check_a03_injection(url, body, headers, result)
     _check_a04_insecure_design(body, headers, result)
     _check_a05_security_misconfiguration(body, headers, result)
@@ -107,8 +107,13 @@ def _check_a01_broken_access_control(url, body, headers, parsed, result):
         result.add("OWASP A01", "Sensitive paths protected", "PASS")
 
 
-def _check_a02_cryptographic_failures(body, headers, parsed, result):
+def _check_a02_cryptographic_failures(body, headers, parsed, result, skip_https_checks=False):
     print("\n  ── A02:2021 — Cryptographic Failures ──")
+
+    if skip_https_checks:
+        print("  [i] HTTPS/HSTS checks skipped (HTTP target)")
+        result.add("OWASP A02", "HTTPS checks skipped", "INFO", detail="HTTP target")
+        return
 
     if parsed.scheme == "https":
         print(f"  [+] HTTPS in use")

@@ -4,8 +4,11 @@ import re
 
 from config import print_section, severity_tag
 
+# Headers that are only meaningful on HTTPS — skip for plain HTTP targets
+_HTTPS_ONLY_HEADERS = {"Strict-Transport-Security"}
 
-def check_security_headers(headers, result):
+
+def check_security_headers(headers, result, skip_https_checks=False):
     """Evaluate presence and quality of critical security headers."""
     print_section("Security Headers")
 
@@ -49,6 +52,12 @@ def check_security_headers(headers, result):
     }
 
     for header, info in security_headers.items():
+        # Skip HTTPS-only headers when scanning a plain HTTP target
+        if skip_https_checks and header in _HTTPS_ONLY_HEADERS:
+            print(f"  [i] SKIP: {header} (not applicable for HTTP targets)")
+            result.add("Headers", header, "INFO", detail="Skipped — HTTP target")
+            continue
+
         if header in headers:
             value = headers[header]
             print(f"  [+] PASS: {header}")

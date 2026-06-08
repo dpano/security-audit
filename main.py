@@ -29,6 +29,7 @@ from checks import (
 def run_audit(url, api_mode=False, auth_header=None, skip_ssl=False, method="GET", body=None, json_body=None):
     parsed = urlparse(url)
     hostname = parsed.hostname
+    is_http = url.startswith("http://")  # plain HTTP — SSL/HTTPS checks not applicable
 
     if not hostname:
         print("[!] Invalid URL. Please include the scheme (https://...).")
@@ -73,26 +74,26 @@ def run_audit(url, api_mode=False, auth_header=None, skip_ssl=False, method="GET
         sys.exit(1)
 
     if api_mode:
-        check_security_headers(headers, result)
+        check_security_headers(headers, result, skip_https_checks=is_http)
         check_information_leakage(headers, result)
         check_cookie_security(response, result)
         check_cors(url, headers, result)
         if not skip_ssl:
             check_ssl_tls(hostname, result)
         check_http_methods(url, result)
-        check_redirect_chain(url, result)
+        check_redirect_chain(url, result, skip_https_checks=is_http)
         check_api_security(url, response, headers, result, auth_header=auth_header)
     else:
-        check_security_headers(headers, result)
+        check_security_headers(headers, result, skip_https_checks=is_http)
         check_information_leakage(headers, result)
         check_cookie_security(response, result)
         check_cors(url, headers, result)
         if not skip_ssl:
             check_ssl_tls(hostname, result)
         check_http_methods(url, result)
-        check_redirect_chain(url, result)
+        check_redirect_chain(url, result, skip_https_checks=is_http)
         check_content_analysis(response, result)
-        check_owasp_top10(url, response, headers, result)
+        check_owasp_top10(url, response, headers, result, skip_https_checks=is_http)
         check_server_fingerprint(headers, result)
 
     # Final summary

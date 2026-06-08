@@ -5,7 +5,7 @@ import requests
 from config import REQUEST_TIMEOUT, build_headers, print_section, severity_tag
 
 
-def check_redirect_chain(url, result):
+def check_redirect_chain(url, result, skip_https_checks=False):
     """Analyze the redirect chain for security issues."""
     print_section("Redirect Chain")
 
@@ -33,8 +33,10 @@ def check_redirect_chain(url, result):
             print("  [+] No redirects — direct response.")
             result.add("Redirects", "No redirects", "PASS")
 
-        # Check if HTTP version redirects to HTTPS
-        if url.startswith("https://"):
+        # HTTP→HTTPS enforcement check — only relevant for https:// targets
+        if skip_https_checks:
+            print("  [i] HTTP→HTTPS redirect check skipped (HTTP target)")
+        elif url.startswith("https://"):
             http_url = url.replace("https://", "http://", 1)
             try:
                 http_resp = requests.get(
